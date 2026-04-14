@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"go-job-worker/internal/handler"
 	"go-job-worker/internal/model"
-	"go-job-worker/internal/producer"
 	"go-job-worker/internal/queue"
+	"go-job-worker/internal/service"
+	"go-job-worker/internal/storage"
 	"go-job-worker/internal/worker"
 	"os"
 	"os/signal"
@@ -13,6 +15,7 @@ import (
 )
 
 func main() {
+	//создаем структуру с каналом jobs
 	qSize := 5
 	q := queue.NewQueue(qSize)
 
@@ -21,17 +24,19 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	//канал для отлова сигналов о прекращении работы приложения
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
 	defer signal.Stop(sigCh)
 
+	//создаем хранилище (мапу), сервис для работы с jobs и сервер
+	st := storage.NewJobsStorage()
+	svc := service.NewJobsService(st, q.JobsCh)
+	h := handler.NewHandler(svc)
+	//запускаем сервер
+	go h.Run()
+
 	sem := make(chan struct{}, 5) //semafor
-
-	//producer записывает job в канал jobs и отправляет сигнал, когда закончит
-	producerDone := make(chan struct{})
-	jobsCount := 50
-	go producer.Producer(jobsCount, q.JobsCh, &jobsWg, producerDone, ctx)
-
 	//worker обрабатывает job из канала jobs
 	workerCount := 10
 
@@ -47,13 +52,9 @@ func main() {
 		)
 	}
 
-	select {
-	case <-producerDone:
-		fmt.Println("producer finished")
-	case <-sigCh:
-		fmt.Println("\nshutdown signal received")
-		cancel()
-	}
+	<-ctx.Done()
+	fmt.Println("\nshutdown signal received")
+	cancel()
 
 	shutdown(q.JobsCh, &jobsWg, &workersWg)
 
