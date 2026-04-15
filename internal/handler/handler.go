@@ -84,5 +84,34 @@ func (h *Handler) handleGetJob(w http.ResponseWriter, r *http.Request) {
 
 // POST
 func (h *Handler) handleCreateJob(w http.ResponseWriter, r *http.Request) {
+	var req requestJob
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "Decode error", http.StatusBadRequest)
+		return
+	}
 
+	if req.Type == "" || req.Payload == "" {
+		http.Error(w, "Empty parameter in request", http.StatusBadRequest)
+		return
+	}
+
+	job, err := h.jobsService.CreateJob(req.Type, req.Payload)
+	if err != nil {
+		http.Error(w, "Create task error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	err = json.NewEncoder(w).Encode(job)
+	if err != nil {
+		log.Println("Encoder error")
+		return
+	}
+}
+
+type requestJob struct {
+	Type    string
+	Payload string
 }
